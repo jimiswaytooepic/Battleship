@@ -8,22 +8,27 @@ public class JimPhieffer implements Strategy {
     private boolean[] shipsDown = new boolean[5];
     private int[][] opponentShips = null;
     private int winsNeeded = 0;
-    private boolean b = false;
+    private boolean bool = false;
+    private ArrayList<Location> al = new ArrayList<>();
+    private ArrayList<Integer> percentages = new ArrayList<>();
+    private int[][] ignore = new int[10][10];
     //////MODIFIERS\\\\\\
-    private int MOD = 1000;
-    private int MOD2 = 0;
+    private int MOD = 10;
+    private int MOD2 = 1;
     private int MOD3 = 1;
+    private int MOD4 = 3;
     //////MODIFIERS\\\\\\
     public static final String[] CODES = {"107", "47", "100", "40"};
     public int[][] ships = new int[10][10];
     private Location lastShot = null;
     public JimPhieffer() {
     }
-    public JimPhieffer(int x, int y, int z) {
+    public JimPhieffer(int x, int y, int z, int a) {
         MOD = x;
         MOD2 = y;
         MOD3 = z;
-        b = true;
+        MOD4 = a;
+        bool = true;
     }
     public int[][] randomizeShips() {
         for(int i = 1; i <= 5; i++) {
@@ -57,7 +62,6 @@ public class JimPhieffer implements Strategy {
             }
             if(collisions(ships, b)) {
                 i--;
-                continue;
             }
             else {
                 ships = addArrays(ships, b);
@@ -86,7 +90,11 @@ public class JimPhieffer implements Strategy {
     }
     public void targetHit(int shipSunk) {
         hits[lastShot.getRow()][lastShot.getCol()]=1;
-        if(shipSunk!=0) shipsDown[shipSunk-1] = true;
+        al.add(copy(lastShot));
+        if(shipSunk!=0){
+            shipsDown[shipSunk-1] = true;
+            addStackToMap(shipSunk);
+        }
         numHits++;
     }
     public void opponentShot(int row, int col) {
@@ -98,14 +106,21 @@ public class JimPhieffer implements Strategy {
         hits = new int[10][10];
         shipsDown = new boolean[5];
         lastShot = null;
-        System.out.println((100*numHits/total)+"% at "+MOD+", "+MOD2+", "+MOD3+(outcome==1?" and won.":"."));
+        percentages.add(100*numHits/total);
+        System.out.println((100*numHits/total)+"% at "+MOD+", "+MOD2+", "+MOD3+", "+MOD4+(outcome==1?" and won.\n":".\n"));
         numHits = 0;
         total = 0;
-        if(b)MOD++;
+        ignore = new int[10][10];
+        al = new ArrayList<>();
     }
     public void seriesEnded(int numRoundsWon, int numRoundsLost, int numRoundsTied) {
+        int i = 0;
+        for(int j : percentages) i += j;
+        i /= percentages.size(); 
+        System.out.println("Average accuracy: "+i+", won "+numRoundsWon+" rounds.");
     }
     public void calculateHeatMap() {
+        heatmap = new int[10][10];
         int[][] a = prioritizeHits(MOD);
         int[][] d = prioritizePreviousShips(MOD2);
         int[][] e = new int[10][10];
@@ -136,6 +151,7 @@ public class JimPhieffer implements Strategy {
         heatmap = addArrays(a, e);
         heatmap = removeIf(heatmap, shots);
         heatmap = removeIf(heatmap, hits);
+        heatmap = removeImprobableLocations(heatmap);
     }
     private int[][] removeIf(int[][] a, int[][] b) {
         for(int i = 0; i < 10; i++) {
@@ -178,7 +194,6 @@ public class JimPhieffer implements Strategy {
         return l;
     }
     public static int[][] addArrays(int[][] a, int[][] b) {
-        if(a.length!=b.length||a[0].length!=b[0].length) return null;
         for(int i = 0; i < a.length; i++) {
             for(int j = 0; j < a[0].length; j++) {
                 a[i][j] += b[i][j];
@@ -205,7 +220,7 @@ public class JimPhieffer implements Strategy {
         }
     }
     public static <E> void printColored(E text, int i) {
-        System.out.print("\u001B["+CODES[i/64]+"m"+(String.valueOf(text).length()==2?text+" ":(String.valueOf(text).length()==1?text+"  ":text))+"\u001B[0m");
+        System.out.print("\u001B["+CODES[i*(4/(i+1))]+"m"+(String.valueOf(text).length()==2?text+" ":(String.valueOf(text).length()==1?text+"  ":text))+"\u001B[0m");
     }
     public int[][] removeCheckered(int[][] a, int[][] ignore) {
         for(int i = 0; i < 10; i++) {
@@ -226,18 +241,22 @@ public class JimPhieffer implements Strategy {
                 for(int j = 0; j < 10; j++) {
                     if(hits[i][j]==1) {
                         for(int l = 0; l < b[k]; l++) {
+                            int addedProbability = 0;
                             int[][] c = new int[10][10];
                             for(int m = -b[k]+1; m <= 0; m++) {
                                 if(!isValid(i, j+m+l)) {c = new int[10][10]; break;}
-                                c[i][j+m+l]+=modifier;
+                                if(bool&&hits[i][j+m+l]>0) addedProbability++;
+                                c[i][j+m+l]+=modifier+addedProbability;
                             }
                             if(!collisions(shots, c)) a = addArrays(a, c);
                         }
                         for(int l = 0; l < b[k]; l++) {
+                            int addedProbability = 0;
                             int[][] c = new int[10][10];
                             for(int m = -b[k]+1; m <= 0; m++) {
                                 if(!isValid(i+m+l, j)) {c = new int[10][10]; break;}
-                                c[i+m+l][j]+=modifier;
+                                if(bool&&hits[i+m+l][j]>0) addedProbability++;
+                                c[i+m+l][j]+=modifier+addedProbability;
                             }
                             if(!collisions(shots, c)) a = addArrays(a, c);
                         }
@@ -259,12 +278,38 @@ public class JimPhieffer implements Strategy {
         }
         return a;
     }
+    private void addStackToMap(int ship) {
+        ship = ship<2?ship+1:ship;
+        for(int i = 0; i < ship; i++) {
+            Location loc = al.remove(al.size()-1);
+            ignore[loc.getRow()][loc.getCol()]++;
+        }
+    }
+    private int[][] removeImprobableLocations(int[][] a) {
+        for(int i = 0; i < 10; i++) {
+            for(int j = 0; j < 10; j++) {
+                if(ignore[i][j]>0) {
+                    for(int k = -1; k <= 1; k++) {
+                        for(int l = -1; l <= 1; l++) {
+                            if(isValid(i, j)) {
+                                a[i][j] /= MOD4;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return a;
+    }
+    private static Location copy(Location l) {
+        return new Location(l.getRow(), l.getCol());
+    }
     public static void main(String[] args) {
-        Display d = new Display();
+        // Display d = new Display();
         //Game.play(new JimPhieffer(1, 1, 1), new JimPhieffer(12, 3 ,3), d, 1);
-        Strategy s1 = new JimPhieffer(1, 1, 1);
-        Strategy s2 = new JimPhieffer();
-        Game.play(s1, s2, d, 200);
+        // Strategy s2 = new JimPhieffer(10, 1, 1, 3);
+        // Strategy s1 = new Human(d);
+        // Game.play(s1, s2, d, 1);
         // JimPhieffer jp = new JimPhieffer();
         // jp.hits[5][5] = 1;
         // jp.calculateHeatMap();
